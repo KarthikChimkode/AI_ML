@@ -1,32 +1,49 @@
-import time 
-import pandas as pd 
+import time
+import pandas as pd
+import mlflow
+import mlflow.sklearn
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-from sklearn.model_selection import cross_val_score
 
-def evaluate_models(models, X_train, X_test, y_train, y_test, X, y):
+def evaluate_models(models, X_train, X_test, y_train, y_test, experiment_name="Multiclassifier_experiment"):
+    mlflow.set_experiment(experiment_name)
     results = []
 
     for name, model in models.items():
-        start = time.time()
-        model.fit(X_train, y_train)
-        train_time = time.time() - start
+        # Start a **new run for each model**
+        with mlflow.start_run(run_name=name):
+            start_time = time.time()
+            model.fit(X_train, y_train)
+            end_time = time.time()
 
-        y_pred = model.predict(X_test)
+            preds = model.predict(X_test)
 
-        acc = accuracy_score(y_test, y_pred)
-        prec = precision_score(y_test, y_pred, average='weighted')
-        rec = recall_score(y_test, y_pred, average='weighted')
-        f1 = f1_score(y_test, y_pred, average='weighted')
-        cv_acc = cross_val_score(model, X, y, cv=5, scoring='accuracy').mean()
+            acc = accuracy_score(y_test, preds)
+            prec = precision_score(y_test, preds, average="weighted")
+            rec = recall_score(y_test, preds, average="weighted")
+            f1 = f1_score(y_test, preds, average="weighted")
+            training_time = end_time - start_time
 
-        results.append({
-            "Model":name,
-            "Accuracy":prec,
-            "Precission":rec,
-            "F1-Score":f1,
-            "CV Accuracy": cv_acc,
-            "Training Times (s)":train_time
-        })
+            # Log parameters & metrics
+            mlflow.log_param("model_type", name)
+            if hasattr(model, "get_params"):
+                mlflow.log_params(model.get_params())
+            
+            mlflow.log_metric("accuracy", acc)
+            mlflow.log_metric("precision", prec)
+            mlflow.log_metric("recall", rec)
+            mlflow.log_metric("f1_score", f1)
+            mlflow.log_metric("training_time", training_time)
 
-    results_df = pd.DataFrame(results)
-    return results_df
+            # Log the model itself
+            mlflow.sklearn.log_model(model, artifact_path=name)
+
+            results.append({
+                "Model": name,
+                "Accuracy": acc,
+                "Precision": prec,
+                "Recall": rec,
+                "F1_Score": f1,
+                "Training Time": training_time
+            })
+
+    return pd.DataFrame(results)
